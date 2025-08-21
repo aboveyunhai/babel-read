@@ -6,6 +6,9 @@ _tauri_plugin_functions = [
 import sys
 import os
 import json
+from typing import cast, TypedDict, TypeVar
+
+Unknown = TypeVar("Unknown")
 
 # this hack, made me cry
 # https://github.com/PyO3/pyo3/discussions/3726#discussioncomment-8013293
@@ -33,8 +36,11 @@ def greet_python(rust_var):
     return str(rust_var) + " from python"
 
 
+type OCRResult = list[tuple[list[tuple[float, float]], str, float]]
+
+
 # buffer here is a number array, it's not real buffer
-def buffer_to_text(buffer, languages=["en"]):
+def buffer_to_text(buffer: list[str], languages=["en"]) -> str:
     try:
         import easyocr
 
@@ -45,8 +51,7 @@ def buffer_to_text(buffer, languages=["en"]):
 
         reader = easyocr.Reader(languages)
 
-        results = reader.readtext(buffer_bytes)
-
+        results = cast(OCRResult, reader.readtext(buffer_bytes))
         paragraphs = group_text_by_blocks(results)
 
         return json.dumps(
@@ -74,16 +79,25 @@ def buffer_to_text(buffer, languages=["en"]):
         )
 
 
-def group_text_by_blocks(results):
+class GroupedItem(TypedDict):
+    text: str
+    y_top: float
+    y_bottom: float
+    x_left: float
+    height: float
+
+
+def group_text_by_blocks(results: OCRResult):
     """
     Simple and fast text grouping based on vertical spacing
     Returns list of paragraph strings
     """
+    paragraphs: list[str] = []
     if not results:
-        return []
+        return paragraphs
 
     # Step 1: Convert results to simple format and sort by position
-    items = []
+    items: list[GroupedItem] = []
     for bbox, text, confidence in results:
         y_coords = [point[1] for point in bbox]
         x_coords = [point[0] for point in bbox]
@@ -106,7 +120,6 @@ def group_text_by_blocks(results):
     gap_threshold = avg_height * 1.5  # Adjust this to control grouping sensitivity
 
     # Step 4: Group items into paragraphs based on vertical gaps
-    paragraphs = []
     current_paragraph = [items[0]]
 
     for i in range(1, len(items)):
